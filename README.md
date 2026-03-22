@@ -14,14 +14,15 @@ ch_input = 3
 ch_output = 1
 
 
-model = UNet(   ch_input,
-                ch_output,
-                init_features = 64, 
-                u_blocks_amount = [ 1,  1,  1,  8,  1,  1,  1],
-                u_blocks_variant= ['C','C','C','R','C','C','C'],
-                u_blocks_resize = ['D','D','D','N','U','U','U'],
-                u_connected = False,
-                fin_act = torch.nn.Sigmoid()
+model = UShapedNet(
+    ch_input,
+    ch_output,
+    init_features = 64, 
+    u_blocks_amount = [ 1,  1,  1,  8,  1,  1,  1],
+    u_blocks_variant= ['C','C','C','R','C','C','C'],
+    u_blocks_resize = ['D','D','D','N','U','U','U'],
+    u_connected = False,
+    fin_act = torch.nn.Sigmoid()
 )
 
 # random input
