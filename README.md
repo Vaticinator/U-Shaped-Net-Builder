@@ -1,5 +1,5 @@
-# U-Net Builder
-Quickly create various types of U-Net networks.
+# U-Shaped Net Builder
+Quickly create various types of U-Shaped networks.
 
 **This is a development version and may contain errors but at its core idea it works.**
 
@@ -8,7 +8,7 @@ Quickly create various types of U-Net networks.
 
 ```python
 import torch
-from unet_builder import UNet
+from ushaped_net_builder import UShapedNet
 
 ch_input = 3
 ch_output = 1
@@ -63,9 +63,11 @@ In case the amount is > 1 and corresponding u_blocks_resize is 'D' or 'U' then t
 **u_blocks_variant**
 * C -> Convolution block
 * R -> Residual block
-* E -> Squeeze Excitation Residual block
-* A -> Position Attention + Scaled Dot Product Attention (it supports only resize 'N')
-* T -> Criss Cross Attention block (it supports only resize 'N')
+* SC -> Separable Convolution block
+* SR -> Separable Residual block
+* SE -> Squeeze Excitation Residual block
+* DA -> Position Attention + Scaled Dot Product Attention (it supports only resize 'N')
+* XA -> Criss Cross Attention block (it supports only resize 'N')
 
 **u_blocks_resize**
 * D -> downsample (halve the height and width but double the number of features)
