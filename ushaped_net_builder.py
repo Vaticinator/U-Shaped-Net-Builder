@@ -69,11 +69,17 @@ class UShapedNet(nn.Module):
                     seq_list.append(SeparableResidualBlock(features_in, features_out, sampling=sampling, use_dropout=use_dropout, padding_mode=padding_mode))
                 elif u_blocks_variant[i] == 'SE':
                     seq_list.append(SEResidualBlock(features_in, features_out, sampling=sampling, use_dropout=use_dropout, padding_mode=padding_mode))
+                elif u_blocks_variant[i] == 'GC':
+                    seq_list.append(GatedConvBlock(features_in, features_out, sampling=sampling, use_dropout=use_dropout, padding_mode=padding_mode))
+                elif u_blocks_variant[i] == 'CN':
+                    seq_list.append(ConvNeXtBlock(features_in, features_out, sampling=sampling, use_dropout=use_dropout, padding_mode=padding_mode))
+                elif u_blocks_variant[i] == 'DR':
+                    seq_list.append(DilatedResidualBlock(features_in, features_out, sampling=sampling, use_dropout=use_dropout, padding_mode=padding_mode))
                 elif u_blocks_variant[i] == 'DA':
                     seq_list.append(DualAttentionBlock(features_in))
                 elif u_blocks_variant[i] == 'XA':
                     seq_list.append(CrissCrossAttention(features_in))
-                
+                    
                 features_in = features_out
                 sampling = None
             self.network.append(nn.Sequential(*seq_list))
@@ -127,6 +133,7 @@ class ConvBlock(nn.Module):
         x = self.upscale(x)
         return self.net(x)
 
+
 class ResidualBlock(nn.Module):
 
     def __init__(self, ch_in, ch_out, sampling=None, use_dropout=False, padding_mode='reflect'):
@@ -166,6 +173,7 @@ class ResidualBlock(nn.Module):
         x = self.upscale(x)
         out = self.fit(x) + self.net(x)       
         return self.act(out)
+
 
 class SeparableConvBlock(nn.Module):
     def __init__(self, ch_in, ch_out, sampling=None, use_dropout=False, padding_mode='reflect'):
@@ -244,6 +252,7 @@ class SeparableResidualBlock(nn.Module):
         out = self.fit(x) + self.net(x)       
         return self.act(out)        
         
+
 class SEResidualBlock(nn.Module):
 
     def __init__(self, ch_in, ch_out, sampling=None, use_dropout=False, padding_mode='reflect'):
@@ -285,7 +294,89 @@ class SEResidualBlock(nn.Module):
         x = self.upscale(x)
         out = self.fit(x) + self.squeeze_excitation(self.net(x))
         return self.act(out)
+
+
+class ConvNeXtBlock(nn.Module):
+    def __init__(self, ch_in, ch_out, sampling=None, use_dropout=False, padding_mode='reflect'):
+        assert(sampling in ["down", None, "up"])
+        super(ConvNeXtBlock, self).__init__()
         
+        # Opcjonalny downsampling/upsampling przed głównym blokiem
+        self.resizer = nn.Identity()
+        if sampling == "down":
+            self.resizer = nn.Conv2d(ch_in, ch_out, kernel_size=2, stride=2)
+        elif sampling == "up":
+            self.resizer = nn.Sequential(
+                nn.Upsample(scale_factor=2),
+                nn.Conv2d(ch_in, ch_out, kernel_size=3, padding=1, padding_mode=padding_mode)
+            )
+        elif ch_in != ch_out:
+            self.resizer = nn.Conv2d(ch_in, ch_out, kernel_size=1)
+            
+        # ch_out staje się nowym ch_in dla bloku właściwego
+        dim = ch_out 
+
+        self.net = nn.Sequential(
+            # 1. Depthwise Conv z dużym kernelem 7x7
+            nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim, padding_mode=padding_mode),
+            # 2. LayerNorm (w PyTorch dla obrazków robimy to przez GroupNorm z 1 grupą)
+            nn.GroupNorm(1, dim),
+            # 3. Inverted Bottleneck (rozszerzenie x4, konwolucja 1x1)
+            nn.Conv2d(dim, dim * 4, kernel_size=1),
+            nn.GELU(),
+            # 4. Kompresja z powrotem (konwolucja 1x1)
+            nn.Conv2d(dim * 4, dim, kernel_size=1)
+        )
+
+    def forward(self, x):
+        x = self.resizer(x)
+        # Skip connection (Dodawanie - to blok typu residual)
+        return x + self.net(x)
+        
+
+class GatedConvBlock(nn.Module):
+    def __init__(self, ch_in, ch_out, sampling=None, use_dropout=False, padding_mode='reflect'):
+        assert(sampling in ["down", None, "up"])
+        super(GatedConvBlock, self).__init__()
+        
+        kernel_size = 5 if sampling == "up" else 3
+        padding = 2 if sampling == "up" else 1
+        stride = 2 if sampling == "down" else 1
+        
+        self.upscale = nn.Upsample(scale_factor=2) if sampling == "up" else nn.Identity()        
+        
+        # Generujemy 2x więcej kanałów: połowa to cechy, połowa to bramka (gate)
+        self.conv = nn.Conv2d(ch_in, ch_out * 2, kernel_size, stride, padding, padding_mode=padding_mode)
+        self.act = nn.GELU()
+
+    def forward(self, x):
+        x = self.upscale(x)
+        x = self.conv(x)
+        
+        # Rozdzielamy tensor na dwie połowy wzdłuż osi kanałów (dim=1)
+        features, gate = torch.chunk(x, 2, dim=1)
+        
+        # Mnożymy cechy przez bramkę (Sigmoid sprawia, że bramka ma wartości 0-1)
+        return self.act(features) * torch.sigmoid(gate)
+        
+
+class DilatedResidualBlock(nn.Module):
+    def __init__(self, ch_in, ch_out, sampling=None, use_dropout=False, padding_mode='reflect', dilation=2):
+        assert(sampling == None) # Dylatacja ma sens głównie gdy nie zmieniamy rozmiaru
+        super(DilatedResidualBlock, self).__init__()
+        
+        # Ważne: padding musi być równy dilation, aby utrzymać ten sam rozmiar obrazu (dla kernela 3)
+        self.net = nn.Sequential(
+            nn.Conv2d(ch_in, ch_out, kernel_size=3, padding=dilation, dilation=dilation, padding_mode=padding_mode, bias=False),
+            nn.BatchNorm2d(ch_out),
+            nn.GELU(),
+            nn.Conv2d(ch_out, ch_out, kernel_size=3, padding=1, dilation=1, padding_mode=padding_mode, bias=False),
+            nn.BatchNorm2d(ch_out)
+        )
+        self.act = nn.GELU()
+
+    def forward(self, x):
+        return self.act(x + self.net(x))
 
 # ---------------------------------------------------------------------------------------------------------------- Attention modules
 
