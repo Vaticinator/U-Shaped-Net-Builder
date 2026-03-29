@@ -1,8 +1,6 @@
 # U-Shaped Net Builder
 Quickly create various types of U-Shaped networks.
 
-**This is a development version and may contain errors but at its core idea it works.**
-
 
 ## Usage example
 
