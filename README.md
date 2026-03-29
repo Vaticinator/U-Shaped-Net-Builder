@@ -67,6 +67,9 @@ In case the amount is > 1 and corresponding u_blocks_resize is 'D' or 'U' then t
 * SC -> Separable Convolution block
 * SR -> Separable Residual block
 * SE -> Squeeze Excitation Residual block
+* GC -> Gated Convolution block
+* CN -> ConvNeXt block
+* DR -> Dilated Residual block
 * DA -> Position Attention + Scaled Dot Product Attention (it supports only resize 'N')
 * XA -> Criss Cross Attention block (it supports only resize 'N')
 
